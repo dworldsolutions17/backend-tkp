@@ -25,7 +25,7 @@ export class CategoriesService {
       relations: ['products'],
       skip,
       take: limit,
-      order: { name: 'ASC' },
+      order: { createdAt: 'DESC' },
     });
 
     return PaginationHelper.paginate(data, total, page, limit);
@@ -53,6 +53,12 @@ export class CategoriesService {
       if (!createCategoryDto.name) {
         throw new BadRequestException('Category name is required');
       }
+      if (!createCategoryDto.slug) {
+        createCategoryDto.slug = createCategoryDto.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+      }
       const category = this.categoriesRepository.create(createCategoryDto);
       return await this.categoriesRepository.save(category);
     } catch (error) {
@@ -67,6 +73,12 @@ export class CategoriesService {
       const existing = await this.findOne(id);
       if (!existing) {
         throw new ResourceNotFoundException('Category', id);
+      }
+      if (updateCategoryDto.name && !updateCategoryDto.slug) {
+        updateCategoryDto.slug = updateCategoryDto.name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
       }
       await this.categoriesRepository.update(id, updateCategoryDto);
       return this.findOne(id);

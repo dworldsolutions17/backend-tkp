@@ -20,6 +20,8 @@ export class DiscountsService {
     const { page = 1, limit = 10 } = paginationDto;
     const skip = PaginationHelper.getSkip(page, limit);
 
+    await this.autoExpireDiscounts();
+
     const [data, total] = await this.discountsRepository.findAndCount({
       skip,
       take: limit,
@@ -27,6 +29,21 @@ export class DiscountsService {
     });
 
     return PaginationHelper.paginate(data, total, page, limit);
+  }
+
+  private async autoExpireDiscounts(): Promise<void> {
+    try {
+      await this.discountsRepository
+        .createQueryBuilder()
+        .update(Discount)
+        .set({ status: 'inactive' })
+        .where('status = :status', { status: 'active' })
+        .andWhere('expiry IS NOT NULL')
+        .andWhere('expiry < :now', { now: new Date() })
+        .execute();
+    } catch (error) {
+      this.logger.warn('Failed to auto-expire discounts', error);
+    }
   }
 
   async findOne(id: number): Promise<Discount> {

@@ -16,7 +16,8 @@ export class CreateCategoryDto {
   @IsString()
   image?: string;
 
-  @ApiProperty()
+  @ApiProperty({ required: false })
+  @IsOptional()
   @IsString()
-  slug: string;
+  slug?: string;
 }

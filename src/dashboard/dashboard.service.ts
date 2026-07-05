@@ -32,12 +32,31 @@ export class DashboardService {
     private inventoryRepository: Repository<Inventory>,
   ) {}
 
-  async getStats(): Promise<DashboardStats> {
+  async getStats(period?: string, value?: number): Promise<DashboardStats> {
     try {
+      const { startDate, endDate } = this.getDateFilter(period, value);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const hasDateFilter = !!startDate;
+
+      // Build conditional date filters for order queries
+      const orderDateFilter = (qb: any) => {
+        if (startDate) qb.andWhere('order.orderDate >= :startDate', { startDate });
+        if (endDate) qb.andWhere('order.orderDate <= :endDate', { endDate });
+      };
+
+      const productDateFilter = (qb: any) => {
+        if (startDate) qb.andWhere('product.createdAt >= :startDate', { startDate });
+        if (endDate) qb.andWhere('product.createdAt <= :endDate', { endDate });
+      };
+
+      const customerDateFilter = (qb: any) => {
+        if (startDate) qb.andWhere('customer.joinedDate >= :startDate', { startDate });
+        if (endDate) qb.andWhere('customer.joinedDate <= :endDate', { endDate });
+      };
 
       // Run all queries in parallel for better performance
       const [
@@ -54,37 +73,70 @@ export class DashboardService {
         outOfStockProducts,
       ] = await Promise.all([
         // Total products
-        this.productRepository.count({ where: { status: 'active' } }),
+        hasDateFilter
+          ? this.productRepository
+              .createQueryBuilder('product')
+              .where('product.status = :status', { status: 'active' })
+              .andWhere('product.createdAt >= :startDate', { startDate })
+              .getCount()
+          : this.productRepository.count({ where: { status: 'active' } }),
         
         // Total customers
-        this.customerRepository.count(),
+        hasDateFilter
+          ? this.customerRepository
+              .createQueryBuilder('customer')
+              .where('customer.joinedDate >= :startDate', { startDate })
+              .getCount()
+          : this.customerRepository.count(),
         
         // Total orders
-        this.orderRepository.count(),
+        (() => {
+          const qb = this.orderRepository.createQueryBuilder('order');
+          orderDateFilter(qb);
+          return qb.getCount();
+        })(),
         
         // Completed orders
-        this.orderRepository.count({ where: { status: 'completed' } }),
+        (() => {
+          const qb = this.orderRepository.createQueryBuilder('order')
+            .where('order.status = :status', { status: 'completed' });
+          orderDateFilter(qb);
+          return qb.getCount();
+        })(),
         
         // Pending orders
-        this.orderRepository.count({ where: { status: 'pending' } }),
+        (() => {
+          const qb = this.orderRepository.createQueryBuilder('order')
+            .where('order.status = :status', { status: 'pending' });
+          orderDateFilter(qb);
+          return qb.getCount();
+        })(),
         
         // Cancelled orders
-        this.orderRepository.count({ where: { status: 'cancelled' } }),
+        (() => {
+          const qb = this.orderRepository.createQueryBuilder('order')
+            .where('order.status = :status', { status: 'cancelled' });
+          orderDateFilter(qb);
+          return qb.getCount();
+        })(),
         
         // Active discounts
         this.discountRepository.count({ where: { status: 'active' } }),
         
         // Total revenue (from completed orders)
-        this.orderRepository
-          .createQueryBuilder('order')
-          .select('SUM(order.total)', 'total')
-          .where('order.status = :status', { status: 'completed' })
-          .getRawOne(),
+        (() => {
+          const qb = this.orderRepository
+            .createQueryBuilder('order')
+            .select('COALESCE(SUM(order.total), 0)', 'total')
+            .where('order.status = :status', { status: 'completed' });
+          orderDateFilter(qb);
+          return qb.getRawOne();
+        })(),
         
         // Today's revenue
         this.orderRepository
           .createQueryBuilder('order')
-          .select('SUM(order.total)', 'total')
+          .select('COALESCE(SUM(order.total), 0)', 'total')
           .where('order.status = :status', { status: 'completed' })
           .andWhere('order.orderDate >= :today', { today })
           .andWhere('order.orderDate < :tomorrow', { tomorrow })
@@ -120,24 +172,58 @@ export class DashboardService {
     }
   }
 
+  private getDateFilter(period?: string, value?: number): { startDate?: Date; endDate?: Date } {
+    if (!period || period === 'all') return {};
+    
+    const now = new Date();
+    now.setHours(23, 59, 59, 999);
+    
+    let startDate: Date;
+    let endDate: Date | undefined;
+    
+    switch (period) {
+      case 'today':
+        startDate = new Date();
+        startDate.setHours(0, 0, 0, 0);
+        endDate = now;
+        break;
+      case 'days':
+        startDate = new Date();
+        startDate.setDate(startDate.getDate() - (value || 30));
+        startDate.setHours(0, 0, 0, 0);
+        break;
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        break;
+      default:
+        return {};
+    }
+    
+    return { startDate, endDate };
+  }
+
   async getRevenueByPeriod(period: 'daily' | 'monthly', days: number = 30): Promise<RevenueByPeriod[]> {
     try {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - days);
+      startDate.setHours(0, 0, 0, 0);
 
-      const dateFormat = period === 'daily' 
-        ? "TO_CHAR(order.\"orderDate\", 'YYYY-MM-DD')"
-        : "TO_CHAR(order.\"orderDate\", 'YYYY-MM')";
+      const groupExpression = period === 'daily'
+        ? "TO_CHAR(order.orderDate, 'YYYY-MM-DD')"
+        : "TO_CHAR(order.orderDate, 'YYYY-MM')";
 
       const results = await this.orderRepository
         .createQueryBuilder('order')
-        .select(`${dateFormat} as period`)
-        .addSelect('SUM(order.total)', 'revenue')
-        .addSelect('COUNT(order.id)', 'orders')
+        .select(groupExpression, 'period')
+        .addSelect('COALESCE(SUM(order.total), 0)', 'revenue')
+        .addSelect('COUNT(order.id)::int', 'orders')
         .where('order.status = :status', { status: 'completed' })
         .andWhere('order.orderDate >= :startDate', { startDate })
-        .groupBy('period')
-        .orderBy('period', 'ASC')
+        .groupBy(groupExpression)
+        .orderBy(groupExpression, 'ASC')
         .getRawMany();
 
       return results.map(row => ({

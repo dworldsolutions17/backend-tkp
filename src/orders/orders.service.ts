@@ -68,7 +68,7 @@ export class OrdersService {
 
   async create(createOrderDto: any): Promise<Order> {
     try {
-      const { customerId, items, shippingAddress, totalAmount, discount = 0, shippingCost = 0, status = 'pending', notes } = createOrderDto;
+      const { customerId, items, shippingAddress, totalAmount, discount = 0, shippingCost = 0, status = 'pending', notes, paymentMethod } = createOrderDto;
 
       // Validate inputs
       if (!customerId) {
@@ -129,6 +129,7 @@ export class OrdersService {
         total: totalAmount || (subtotal - discount + shippingCost),
         status: this.normalizeStatus(status),
         notes,
+        paymentMethod,
       });
 
       const savedOrder = await this.ordersRepository.save(order);

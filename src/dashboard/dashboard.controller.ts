@@ -16,8 +16,13 @@ export class DashboardController {
 
   @Get('stats')
   @ApiOperation({ summary: 'Get dashboard statistics' })
-  async getStats(): Promise<DashboardStats> {
-    return this.dashboardService.getStats();
+  @ApiQuery({ name: 'period', enum: ['all', 'today', 'days', 'month', 'year'], required: false })
+  @ApiQuery({ name: 'value', type: Number, required: false })
+  async getStats(
+    @Query('period') period?: string,
+    @Query('value') value?: string,
+  ): Promise<DashboardStats> {
+    return this.dashboardService.getStats(period, value ? parseInt(value) : undefined);
   }
 
   @Get('revenue')
