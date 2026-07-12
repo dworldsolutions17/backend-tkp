@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { Order } from './order.entity';
 import { OrderItem } from './order-item.entity';
 import { Customer } from '../customers/customer.entity';
+import { Discount } from '../discounts/discount.entity';
 import { CsvHelper } from '../common/csv.helper';
 import { PaginatedResponse, PaginationHelper } from '../common/pagination.helper';
 import { ResourceNotFoundException } from '../common/exceptions/custom.exceptions';
@@ -28,6 +29,8 @@ export class OrdersService {
     private orderItemsRepository: Repository<OrderItem>,
     @InjectRepository(Customer)
     private customersRepository: Repository<Customer>,
+    @InjectRepository(Discount)
+    private discountsRepository: Repository<Discount>,
   ) {}
 
   private normalizeStatus(status?: string): string {
@@ -68,7 +71,7 @@ export class OrdersService {
 
   async create(createOrderDto: any): Promise<Order> {
     try {
-      const { customerId, items, shippingAddress, totalAmount, discount = 0, shippingCost = 0, status = 'pending', notes, paymentMethod } = createOrderDto;
+      const { customerId, items, shippingAddress, totalAmount, discount = 0, shippingCost = 0, status = 'pending', notes, paymentMethod, discountCode } = createOrderDto;
 
       // Validate inputs
       if (!customerId) {
@@ -130,6 +133,7 @@ export class OrdersService {
         status: this.normalizeStatus(status),
         notes,
         paymentMethod,
+        discountCode,
       });
 
       const savedOrder = await this.ordersRepository.save(order);
@@ -148,6 +152,11 @@ export class OrdersService {
           });
         });
         await this.orderItemsRepository.save(orderItems);
+      }
+
+      // Increment discount usage if a coupon was applied
+      if (discountCode) {
+        await this.discountsRepository.increment({ code: discountCode }, 'used', 1);
       }
 
       // Return order with items

@@ -59,6 +59,12 @@ export class DiscountsController {
     return this.discountsService.findByCode(code);
   }
 
+  @Post('validate')
+  @ApiOperation({ summary: 'Validate a discount coupon code' })
+  async validate(@Body('code') code: string) {
+    return this.discountsService.validateCode(code);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create new discount' })
   create(@Body() createDiscountDto: any) {

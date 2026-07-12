@@ -121,7 +121,10 @@ export class DashboardService {
         })(),
         
         // Active discounts
-        this.discountRepository.count({ where: { status: 'active' } }),
+        this.discountRepository
+          .createQueryBuilder('discount')
+          .where('LOWER(discount.status) = :status', { status: 'active' })
+          .getCount(),
         
         // Total revenue (from completed orders)
         (() => {

@@ -67,6 +67,9 @@ export class Order {
   @Column({ nullable: true })
   paymentMethod: string;
 
+  @Column({ nullable: true })
+  discountCode: string;
+
   @CreateDateColumn()
   orderDate: Date;
 

@@ -37,7 +37,7 @@ export class DiscountsService {
         .createQueryBuilder()
         .update(Discount)
         .set({ status: 'inactive' })
-        .where('status = :status', { status: 'active' })
+        .where('LOWER(status) = :status', { status: 'active' })
         .andWhere('expiry IS NOT NULL')
         .andWhere('expiry < :now', { now: new Date() })
         .execute();
@@ -66,6 +66,29 @@ export class DiscountsService {
     } catch (error) {
       this.logger.error(`Failed to find discount by code ${code}`, error);
       throw new InternalServerErrorException(`Failed to find discount: ${error.message}`);
+    }
+  }
+
+  async validateCode(code: string): Promise<Discount> {
+    try {
+      const discount = await this.discountsRepository.findOne({ where: { code } });
+      if (!discount) {
+        throw new BadRequestException('Invalid coupon code');
+      }
+      if (discount.status?.toLowerCase() !== 'active') {
+        throw new BadRequestException('This coupon is no longer active');
+      }
+      if (discount.expiry && new Date(discount.expiry) < new Date()) {
+        throw new BadRequestException('This coupon has expired');
+      }
+      if (discount.used >= discount.usageLimit) {
+        throw new BadRequestException('This coupon has reached its usage limit');
+      }
+      return discount;
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      this.logger.error(`Failed to validate discount code ${code}`, error);
+      throw new InternalServerErrorException(`Failed to validate discount: ${error.message}`);
     }
   }
 
